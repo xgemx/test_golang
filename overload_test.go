@@ -15,7 +15,6 @@ import (
 func TestOverload(t *testing.T) {
 	type testSet struct {
 		numOfTests  int
-		oneIter     int
 		resultCount int
 		runTime     int
 		tests       []string
@@ -27,19 +26,17 @@ func TestOverload(t *testing.T) {
 	}
 	letters := []string{"e", "t", "a", "o", "i"}
 	words := []string{"the", "to", "in", "for", "of"}
-	set := testSet{1000, 1000, 1000000, 20, tests, words, letters}
+	set := testSet{1000, 1000000, 10, tests, words, letters}
 	startTime := time.Now()
-	for i := 0; i < set.numOfTests/set.oneIter; i++ {
-		for j := 0; j < set.oneIter; j++ {
-			for _, test := range set.tests {
-				go SendString(test)
-			}
+	for i := 0; i < set.numOfTests; i++ {
+		for _, test := range set.tests {
+			go SendString(test)
 		}
 	}
 	timeDelta := int(time.Since(startTime) / 1000000000)
 	for timeDelta < set.runTime {
 		fmt.Println("Wait", set.runTime-timeDelta)
-		time.Sleep(10000000000)
+		time.Sleep(1000000000)
 		timeDelta = int(time.Since(startTime) / 1000000000)
 	}
 	result := GetResult(5, 0, t)

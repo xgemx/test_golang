@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"runtime"
-	// "sort"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -63,13 +63,51 @@ func RunTCPServer(host string) {
 	}
 }
 
+type sortedMap struct {
+	m map[string]int
+	s []string
+}
+
+func (sm *sortedMap) Len() int {
+	return len(sm.m)
+}
+
+func (sm *sortedMap) Less(i, j int) bool {
+	var res bool
+	if sm.m[sm.s[i]] == sm.m[sm.s[j]] {
+		res = (sm.s[i] < sm.s[j])
+	} else {
+		res = sm.m[sm.s[i]] > sm.m[sm.s[j]]
+	}
+	return res
+}
+
+func (sm *sortedMap) Swap(i, j int) {
+	sm.s[i], sm.s[j] = sm.s[j], sm.s[i]
+}
+
+func sortedKeys(m map[string]int) ([]string, int) {
+	sm := new(sortedMap)
+	count := 0
+	sm.m = m
+	sm.s = make([]string, len(m))
+	i := 0
+	for key, _ := range m {
+		count += m[key]
+		sm.s[i] = key
+		i++
+	}
+	sort.Sort(sm)
+	return sm.s, count
+}
+
 // Structure that help synchronize goroutines (show statistic and set words pasts)
 type routineSynchroniser struct {
 	wordsStat   map[string]int
 	lettersStat map[string]int
 	setQuery    chan string
 	getQuery    chan string
-	getRes      chan [2]map[string]int
+	getRes      chan []map[string]int
 }
 
 // Method manage access to statistical info for show and set flows
@@ -80,7 +118,15 @@ func (info *routineSynchroniser) SyncStatisticInfo() {
 		case message = <-info.setQuery:
 			info.SetInfo(message)
 		case <-info.getQuery:
-			info.getRes <- [2]map[string]int{info.wordsStat, info.lettersStat}
+			wStat := map[string]int{}
+			lStat := map[string]int{}
+			for k, v := range info.wordsStat {
+				wStat[k] = v
+			}
+			for k, v := range info.lettersStat {
+				lStat[k] = v
+			}
+			info.getRes <- []map[string]int{wStat, lStat}
 		}
 	}
 }
@@ -97,13 +143,14 @@ func (info *routineSynchroniser) SetInfo(line string) {
 	line = rx.ReplaceAllString(line, " ")
 	words := strings.Fields(line)
 	for _, word := range words {
+		word = strings.ToLower(word)
 		if _, ok := info.wordsStat[word]; ok {
 			info.wordsStat[word]++
 		} else {
 			info.wordsStat[word] = 1
 		}
 		for _, letterRune := range word {
-			letter := string(letterRune)
+			letter := strings.ToLower(string(letterRune))
 			if info.lettersStat[letter] == 0 {
 				info.lettersStat[letter] = 1
 			} else {
@@ -118,7 +165,7 @@ var synchroniser = routineSynchroniser{
 	map[string]int{},
 	make(chan string, 100000),
 	make(chan string),
-	make(chan [2]map[string]int),
+	make(chan []map[string]int),
 }
 
 // Structure that serve connection to show static info part of app
@@ -147,97 +194,25 @@ func (m *getHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resValue)
 }
 
-// map of pair: grammatical symbol(word or letter) and frequency of this symbol
-type SymbolPair map[string]int
-
-// Implementation of heapsort algorithm for array of SymbolPart struct
-func heapSort(data []SymbolPair) []SymbolPair {
-	dataLen := len(data)
-	less := func(i, j int) bool {
-		var res bool
-		for iElement, iFreq := range data[i] {
-			for jElement, jFreq := range data[j] {
-				if iFreq == jFreq {
-					res = (iElement < jElement)
-				} else {
-					res = iFreq < jFreq
-				}
-			}
-		}
-		return res
-	}
-	swap := func(i, j int) {
-		if less(i, j) {
-			data[i], data[j] = data[j], data[i]
-		}
-	}
-	shift := func(i, unsorted int) {
-		var gtci int
-		for i*2+1 < unsorted {
-			if i*2+2 < unsorted && less(i*2+1, i*2+2) {
-				gtci = i*2 + 2
-			} else {
-				gtci = i*2 + 1
-			}
-			swap(i, gtci)
-			i = gtci
-		}
-	}
-	for i := int(dataLen/2 - 1); i >= 0; i-- {
-		shift(i, dataLen)
-	}
-	for i := dataLen - 1; i > 0; i-- {
-		swap(i, 0)
-		shift(0, i)
-	}
-	return data
-}
-
-// Function give top N SymbolPairs and count of all symbols in statistic
-func GetTopStat(N int, statInfo map[string]int) (int, []SymbolPair) {
-	allCount, j := 0, 0
-	popular := make([]SymbolPair, N)
-	for symbol, frequency := range statInfo {
-		allCount += frequency
-		if j < N {
-			popular[j] = SymbolPair{symbol: frequency}
-			j++
-		} else {
-			for i := 0; i < N; i++ {
-				for buf, bufFrequency := range popular[i] {
-					if frequency > bufFrequency {
-						popular[i] = SymbolPair{symbol: frequency}
-						symbol, frequency = buf, bufFrequency
-					}
-				}
-			}
-		}
-	}
-	//sort.Sort(popular)
-	return allCount, heapSort(popular)
-}
-
 // Function get number of top letters and words to show and generate
 // statistic answer result
 func GetStatisticalResult(N int) map[string]interface{} {
 	synchroniser.getQuery <- "start"
 	statArray := <-synchroniser.getRes
-	wordsStat, lettersStat := statArray[0], statArray[1]
+	sortedWords, wordsCount := sortedKeys(statArray[0])
+	sortedLetters, _ := sortedKeys(statArray[1])
 	topWordsString := fmt.Sprintf("top_%d_words", N)
 	topLettersString := fmt.Sprintf("top_%d_letters", N)
-	allCount, topWordsPairs := GetTopStat(N, wordsStat)
-	_, topLettersPairs := GetTopStat(N, lettersStat)
-	topWords, topLetters := []string{}, []string{}
-	for i := 0; i < N; i++ {
-		for word, _ := range topWordsPairs[i] {
-			topWords = append(topWords, word)
-		}
-		for letter, _ := range topLettersPairs[i] {
-			topLetters = append(topLetters, letter)
-		}
+	wordsN, lettersN := len(sortedWords), len(sortedLetters)
+	if N < wordsN {
+		wordsN = N
 	}
+	if N < lettersN {
+		lettersN = N
+	}
+	topWords, topLetters := sortedWords[:wordsN], sortedLetters[:lettersN]
 	result := map[string]interface{}{
-		"count":          allCount,
+		"count":          wordsCount,
 		topWordsString:   topWords,
 		topLettersString: topLetters,
 	}
