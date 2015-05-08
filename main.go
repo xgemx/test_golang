@@ -49,16 +49,15 @@ func RunTCPServer(host string) {
 			continue
 		}
 		go func(conn net.Conn, i int) {
-			fmt.Println("#", i)
-			message, err := bufio.NewReader(conn).ReadString('\n')
-			if err != nil {
-				fmt.Println("Error: ", err)
-				conn.Close()
-				return
-			}
-			conn.Close()
-			if message != "" {
-				synchroniser.setQuery <- string(message)
+			defer conn.Close()
+			for {
+				message, err := bufio.NewReader(conn).ReadString('\n')
+				if err != nil {
+					return
+				}
+				if message != "" {
+					synchroniser.setQuery <- string(message)
+				}
 			}
 		}(conn, i)
 	}

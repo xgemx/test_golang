@@ -27,7 +27,7 @@ func TestOverload(t *testing.T) {
 	}
 	letters := []string{"e", "t", "a", "o", "i"}
 	words := []string{"the", "to", "in", "for", "of"}
-	set := testSet{1000, 1000, 1000000, 10, tests, words, letters}
+	set := testSet{1000, 1000, 1000000, 20, tests, words, letters}
 	startTime := time.Now()
 	for i := 0; i < set.numOfTests/set.oneIter; i++ {
 		for j := 0; j < set.oneIter; j++ {
