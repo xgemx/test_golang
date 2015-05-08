@@ -42,21 +42,25 @@ func RunTCPServer(host string) {
 	}
 	defer ln.Close()
 
-	for {
+	for i := 0; true; i++ {
 		conn, err := ln.Accept()
 		if err != nil {
 			fmt.Println(err)
 			continue
 		}
-		message, err := bufio.NewReader(conn).ReadString('\n')
-		if err != nil {
-			continue
-		}
-		if message != "" {
-			synchroniser.setQuery <- string(message)
-			conn.Write([]byte("done \n"))
-		}
-		conn.Close()
+		go func(conn net.Conn, i int) {
+			fmt.Println("#", i)
+			message, err := bufio.NewReader(conn).ReadString('\n')
+			if err != nil {
+				fmt.Println("Error: ", err)
+				conn.Close()
+				return
+			}
+			conn.Close()
+			if message != "" {
+				synchroniser.setQuery <- string(message)
+			}
+		}(conn, i)
 	}
 }
 
@@ -108,19 +112,12 @@ func (info *routineSynchroniser) SetInfo(line string) {
 			}
 		}
 	}
-	// fmt.Println("{")
-	// for k, v := range info.lettersStat {
-	// 	fmt.Printf("\"%s\": %d", k, v)
-	// 	fmt.Println(", ")
-	// }
-	// fmt.Println("}")
-
 }
 
 var synchroniser = routineSynchroniser{
 	map[string]int{},
 	map[string]int{},
-	make(chan string),
+	make(chan string, 100000),
 	make(chan string),
 	make(chan [2]map[string]int),
 }
