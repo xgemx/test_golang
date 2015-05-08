@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/reiver/go-porterstemmer"
 	"net"
 	"net/http"
 	"regexp"
 	"runtime"
+	// "sort"
 	"strconv"
 	"strings"
 )
@@ -42,13 +42,13 @@ func RunTCPServer(host string) {
 	}
 	defer ln.Close()
 
-	for i := 0; true; i++ {
+	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			fmt.Println(err)
 			continue
 		}
-		go func(conn net.Conn, i int) {
+		go func(conn net.Conn) {
 			defer conn.Close()
 			for {
 				message, err := bufio.NewReader(conn).ReadString('\n')
@@ -59,7 +59,7 @@ func RunTCPServer(host string) {
 					synchroniser.setQuery <- string(message)
 				}
 			}
-		}(conn, i)
+		}(conn)
 	}
 }
 
@@ -97,10 +97,10 @@ func (info *routineSynchroniser) SetInfo(line string) {
 	line = rx.ReplaceAllString(line, " ")
 	words := strings.Fields(line)
 	for _, word := range words {
-		if _, ok := info.wordsStat[porterstemmer.StemString(word)]; ok {
-			info.wordsStat[porterstemmer.StemString(word)]++
+		if _, ok := info.wordsStat[word]; ok {
+			info.wordsStat[word]++
 		} else {
-			info.wordsStat[porterstemmer.StemString(word)] = 1
+			info.wordsStat[word] = 1
 		}
 		for _, letterRune := range word {
 			letter := string(letterRune)
@@ -150,6 +150,49 @@ func (m *getHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // map of pair: grammatical symbol(word or letter) and frequency of this symbol
 type SymbolPair map[string]int
 
+// Implementation of heapsort algorithm for array of SymbolPart struct
+func heapSort(data []SymbolPair) []SymbolPair {
+	dataLen := len(data)
+	less := func(i, j int) bool {
+		var res bool
+		for iElement, iFreq := range data[i] {
+			for jElement, jFreq := range data[j] {
+				if iFreq == jFreq {
+					res = (iElement < jElement)
+				} else {
+					res = iFreq < jFreq
+				}
+			}
+		}
+		return res
+	}
+	swap := func(i, j int) {
+		if less(i, j) {
+			data[i], data[j] = data[j], data[i]
+		}
+	}
+	shift := func(i, unsorted int) {
+		var gtci int
+		for i*2+1 < unsorted {
+			if i*2+2 < unsorted && less(i*2+1, i*2+2) {
+				gtci = i*2 + 2
+			} else {
+				gtci = i*2 + 1
+			}
+			swap(i, gtci)
+			i = gtci
+		}
+	}
+	for i := int(dataLen/2 - 1); i >= 0; i-- {
+		shift(i, dataLen)
+	}
+	for i := dataLen - 1; i > 0; i-- {
+		swap(i, 0)
+		shift(0, i)
+	}
+	return data
+}
+
 // Function give top N SymbolPairs and count of all symbols in statistic
 func GetTopStat(N int, statInfo map[string]int) (int, []SymbolPair) {
 	allCount, j := 0, 0
@@ -170,7 +213,8 @@ func GetTopStat(N int, statInfo map[string]int) (int, []SymbolPair) {
 			}
 		}
 	}
-	return allCount, popular
+	//sort.Sort(popular)
+	return allCount, heapSort(popular)
 }
 
 // Function get number of top letters and words to show and generate
